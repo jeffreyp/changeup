@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Changeup — Chord Change Metronome</title>
+<style>
+  :root {
+    --bg: #12141c;
+    --panel: #1c1f2b;
+    --panel-2: #232738;
+    --text: #f0f1f5;
+    --muted: #9198ad;
+    --accent: #5fd0a8;
+    --accent-dim: #2f5c4c;
+    --danger: #e0616b;
+    --border: #2e3244;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  body {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px 48px;
+  }
+  h1 {
+    font-size: 1.4rem;
+    font-weight: 600;
+    margin: 0 0 4px;
+    letter-spacing: 0.02em;
+  }
+  .subtitle {
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin-bottom: 24px;
+    text-align: center;
+  }
+  .container {
+    width: 100%;
+    max-width: 480px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  /* Chord display */
+  .chord-stage {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+  }
+  .chord-display {
+    font-size: 5rem;
+    font-weight: 700;
+    line-height: 1;
+    min-height: 5.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent);
+    transition: transform 0.08s ease;
+  }
+  .chord-display.pulse {
+    transform: scale(1.08);
+  }
+  .chord-display.idle {
+    color: var(--muted);
+    font-size: 1.6rem;
+  }
+  .beat-dots {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+    min-height: 16px;
+  }
+  .beat-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    transition: background 0.05s ease, transform 0.05s ease;
+  }
+  .beat-dot.on {
+    background: var(--accent);
+    border-color: var(--accent);
+    transform: scale(1.15);
+  }
+  .beat-dot.accent.on {
+    background: #ffd166;
+    border-color: #ffd166;
+  }
+
+  /* Controls */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .row label {
+    font-size: 0.85rem;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .bpm-value {
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: var(--text);
+    min-width: 3.5ch;
+    text-align: right;
+  }
+  input[type="range"] {
+    flex: 1;
+    accent-color: var(--accent);
+    height: 4px;
+  }
+  input[type="number"] {
+    width: 64px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 6px 8px;
+    font-size: 0.95rem;
+  }
+  .bpm-buttons {
+    display: flex;
+    gap: 6px;
+  }
+  .bpm-buttons button {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    width: 32px;
+    height: 32px;
+    font-size: 1rem;
+    cursor: pointer;
+  }
+  .bpm-buttons button:active { background: var(--accent-dim); }
+
+  .chords-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+  }
+  .chord-toggle {
+    position: relative;
+  }
+  .chord-toggle input {
+    position: absolute;
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    cursor: pointer;
+  }
+  .chord-toggle span {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 0;
+    border-radius: 10px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-weight: 600;
+    font-size: 0.95rem;
+    user-select: none;
+    transition: background 0.1s ease, color 0.1s ease, border-color 0.1s ease;
+  }
+  .chord-toggle input:checked + span {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .order-toggle {
+    display: flex;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .order-toggle button {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    padding: 8px 0;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  .order-toggle button.active {
+    background: var(--accent-dim);
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .chord-select-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .link-btn {
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 0.78rem;
+    cursor: pointer;
+    text-decoration: underline;
+    padding: 0;
+  }
+
+  #startBtn {
+    background: var(--accent);
+    color: #0b1712;
+    border: none;
+    border-radius: 12px;
+    padding: 16px;
+    font-size: 1.05rem;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: 0.02em;
+  }
+  #startBtn.running {
+    background: var(--danger);
+    color: #2a0e10;
+  }
+  #startBtn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .warning {
+    color: var(--danger);
+    font-size: 0.8rem;
+    text-align: center;
+    min-height: 1em;
+  }
+
+  .hint {
+    color: var(--muted);
+    font-size: 0.75rem;
+    text-align: center;
+  }
+
+  @media (max-width: 380px) {
+    .chord-display { font-size: 3.6rem; }
+    .chords-grid { grid-template-columns: repeat(4, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+  <h1>Changeup</h1>
+  <div class="subtitle">Metronome + chord-change trainer</div>
+
+  <div class="container">
+
+    <div class="chord-stage">
+      <div class="chord-display idle" id="chordDisplay">Ready</div>
+      <div class="beat-dots" id="beatDots"></div>
+    </div>
+
+    <div class="panel">
+      <div class="row">
+        <label for="bpmRange">Tempo</label>
+        <span class="bpm-value" id="bpmValue">90 BPM</span>
+      </div>
+      <div class="row">
+        <div class="bpm-buttons">
+          <button type="button" id="bpmDown">−</button>
+          <button type="button" id="bpmUp">+</button>
+        </div>
+        <input type="range" id="bpmRange" min="30" max="240" value="90">
+        <input type="number" id="bpmNumber" min="30" max="240" value="90">
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="row">
+        <label for="beatsPerChord">Beats per chord</label>
+        <input type="number" id="beatsPerChord" min="1" max="32" value="4">
+      </div>
+      <div class="row">
+        <label>Order</label>
+        <div class="order-toggle">
+          <button type="button" id="orderRandom" class="active">Random</button>
+          <button type="button" id="orderSequential">Sequential</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="chord-select-row">
+        <label>Chords in rotation</label>
+        <button type="button" class="link-btn" id="selectAllBtn">select all / none</button>
+      </div>
+      <div class="chords-grid" id="chordsGrid"></div>
+    </div>
+
+    <div class="warning" id="warningMsg"></div>
+
+    <button id="startBtn">▶ Start</button>
+
+    <div class="hint">Press Space to Start/Stop &middot; works offline once loaded</div>
+
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  const CHORDS = ["E", "Em", "D", "Dm", "A", "Am", "C", "G"];
+
+  // ---- DOM ----
+  const chordDisplay = document.getElementById("chordDisplay");
+  const beatDotsEl = document.getElementById("beatDots");
+  const bpmRange = document.getElementById("bpmRange");
+  const bpmNumber = document.getElementById("bpmNumber");
+  const bpmValue = document.getElementById("bpmValue");
+  const bpmUp = document.getElementById("bpmUp");
+  const bpmDown = document.getElementById("bpmDown");
+  const beatsPerChordInput = document.getElementById("beatsPerChord");
+  const orderRandomBtn = document.getElementById("orderRandom");
+  const orderSequentialBtn = document.getElementById("orderSequential");
+  const chordsGrid = document.getElementById("chordsGrid");
+  const selectAllBtn = document.getElementById("selectAllBtn");
+  const startBtn = document.getElementById("startBtn");
+  const warningMsg = document.getElementById("warningMsg");
+
+  // ---- State ----
+  let bpm = 90;
+  let beatsPerChord = 4;
+  let orderMode = "random"; // "random" | "sequential"
+  let enabledChords = new Set(CHORDS);
+  let isRunning = false;
+
+  let audioCtx = null;
+  let nextNoteTime = 0.0;
+  let totalBeatCount = 0;
+  let sequentialCursor = 0;
+  let lastChordName = null;
+  const chordSequence = []; // memoized chord per chord-group-index
+  const scheduleAheadTime = 0.12; // seconds
+  const lookaheadMs = 25.0;
+  let timerId = null;
+
+  const noteQueue = []; // {time, beatInGroup, isAccent, chordIndex, chordName}
+  let rafId = null;
+
+  // ---- Build chord checkboxes ----
+  CHORDS.forEach((name) => {
+    const label = document.createElement("label");
+    label.className = "chord-toggle";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = true;
+    input.value = name;
+    input.addEventListener("change", () => {
+      if (input.checked) enabledChords.add(name);
+      else enabledChords.delete(name);
+      validate();
+    });
+    const span = document.createElement("span");
+    span.textContent = name;
+    label.appendChild(input);
+    label.appendChild(span);
+    chordsGrid.appendChild(label);
+  });
+
+  selectAllBtn.addEventListener("click", () => {
+    const checkboxes = chordsGrid.querySelectorAll("input[type=checkbox]");
+    const allChecked = enabledChords.size === CHORDS.length;
+    checkboxes.forEach((cb) => {
+      cb.checked = !allChecked;
+      if (!allChecked) enabledChords.add(cb.value);
+      else enabledChords.delete(cb.value);
+    });
+    validate();
+  });
+
+  function validate() {
+    if (enabledChords.size === 0) {
+      warningMsg.textContent = "Select at least one chord to start.";
+      startBtn.disabled = true;
+    } else {
+      warningMsg.textContent = "";
+      startBtn.disabled = false;
+    }
+  }
+  validate();
+
+  // ---- BPM controls ----
+  function setBpm(v) {
+    v = Math.max(30, Math.min(240, Math.round(v)));
+    bpm = v;
+    bpmRange.value = v;
+    bpmNumber.value = v;
+    bpmValue.textContent = v + " BPM";
+  }
+  bpmRange.addEventListener("input", () => setBpm(bpmRange.value));
+  bpmNumber.addEventListener("input", () => {
+    if (bpmNumber.value !== "") setBpm(bpmNumber.value);
+  });
+  bpmUp.addEventListener("click", () => setBpm(bpm + 1));
+  bpmDown.addEventListener("click", () => setBpm(bpm - 1));
+  setBpm(90);
+
+  // ---- Beats per chord ----
+  beatsPerChordInput.addEventListener("input", () => {
+    const v = parseInt(beatsPerChordInput.value, 10);
+    if (!isNaN(v) && v > 0) {
+      beatsPerChord = Math.max(1, Math.min(32, v));
+      buildBeatDots();
+    }
+  });
+  beatsPerChord = parseInt(beatsPerChordInput.value, 10) || 4;
+
+  // ---- Order mode ----
+  orderRandomBtn.addEventListener("click", () => {
+    orderMode = "random";
+    orderRandomBtn.classList.add("active");
+    orderSequentialBtn.classList.remove("active");
+  });
+  orderSequentialBtn.addEventListener("click", () => {
+    orderMode = "sequential";
+    orderSequentialBtn.classList.add("active");
+    orderRandomBtn.classList.remove("active");
+  });
+
+  // ---- Beat dots UI ----
+  function buildBeatDots() {
+    beatDotsEl.innerHTML = "";
+    for (let i = 0; i < beatsPerChord; i++) {
+      const dot = document.createElement("div");
+      dot.className = "beat-dot" + (i === 0 ? " accent" : "");
+      beatDotsEl.appendChild(dot);
+    }
+  }
+  buildBeatDots();
+
+  function lightBeatDot(idx) {
+    const dots = beatDotsEl.children;
+    for (let i = 0; i < dots.length; i++) {
+      dots[i].classList.toggle("on", i === idx);
+    }
+  }
+
+  // ---- Chord sequence generation ----
+  function pickChordForGroup(groupIndex) {
+    if (chordSequence[groupIndex] !== undefined) return chordSequence[groupIndex];
+
+    const pool = Array.from(enabledChords);
+    let choice;
+    if (pool.length === 0) {
+      choice = "?";
+    } else if (orderMode === "sequential") {
+      // Use the fixed CHORDS order, filtered to enabled ones, cycling.
+      const ordered = CHORDS.filter((c) => enabledChords.has(c));
+      choice = ordered[sequentialCursor % ordered.length];
+      sequentialCursor++;
+    } else {
+      // random, avoid immediate repeat when possible
+      if (pool.length === 1) {
+        choice = pool[0];
+      } else {
+        do {
+          choice = pool[Math.floor(Math.random() * pool.length)];
+        } while (choice === lastChordName);
+      }
+    }
+    lastChordName = choice;
+    chordSequence[groupIndex] = choice;
+    return choice;
+  }
+
+  // ---- Audio ----
+  function playClick(time, isAccent) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = isAccent ? 1000 : 700;
+    gain.gain.setValueAtTime(0.001, time);
+    gain.gain.exponentialRampToValueAtTime(isAccent ? 0.9 : 0.6, time + 0.001);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.06);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(time);
+    osc.stop(time + 0.07);
+  }
+
+  function scheduler() {
+    while (nextNoteTime < audioCtx.currentTime + scheduleAheadTime) {
+      const beatInGroup = totalBeatCount % beatsPerChord;
+      const groupIndex = Math.floor(totalBeatCount / beatsPerChord);
+      const isAccent = beatInGroup === 0;
+      const chordName = pickChordForGroup(groupIndex);
+
+      playClick(nextNoteTime, isAccent);
+      noteQueue.push({
+        time: nextNoteTime,
+        beatInGroup: beatInGroup,
+        isAccent: isAccent,
+        chordName: chordName,
+      });
+
+      nextNoteTime += 60.0 / bpm;
+      totalBeatCount++;
+    }
+    timerId = setTimeout(scheduler, lookaheadMs);
+  }
+
+  function drawLoop() {
+    const now = audioCtx.currentTime;
+    while (noteQueue.length && noteQueue[0].time <= now) {
+      const note = noteQueue.shift();
+      if (note.chordName !== chordDisplay.textContent || chordDisplay.classList.contains("idle")) {
+        chordDisplay.textContent = note.chordName;
+        chordDisplay.classList.remove("idle");
+      }
+      lightBeatDot(note.beatInGroup);
+      chordDisplay.classList.remove("pulse");
+      // force reflow to restart animation
+      void chordDisplay.offsetWidth;
+      chordDisplay.classList.add("pulse");
+    }
+    if (isRunning) rafId = requestAnimationFrame(drawLoop);
+  }
+
+  function start() {
+    if (enabledChords.size === 0) return;
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === "suspended") {
+      audioCtx.resume();
+    }
+    isRunning = true;
+    totalBeatCount = 0;
+    sequentialCursor = 0;
+    lastChordName = null;
+    chordSequence.length = 0;
+    noteQueue.length = 0;
+    nextNoteTime = audioCtx.currentTime + 0.05;
+    startBtn.textContent = "■ Stop";
+    startBtn.classList.add("running");
+    scheduler();
+    drawLoop();
+  }
+
+  function stop() {
+    isRunning = false;
+    clearTimeout(timerId);
+    cancelAnimationFrame(rafId);
+    startBtn.textContent = "▶ Start";
+    startBtn.classList.remove("running");
+    chordDisplay.textContent = "Ready";
+    chordDisplay.classList.add("idle");
+    lightBeatDot(-1);
+  }
+
+  startBtn.addEventListener("click", () => {
+    if (isRunning) stop();
+    else start();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.code === "Space" && e.target === document.body) {
+      e.preventDefault();
+      if (startBtn.disabled) return;
+      if (isRunning) stop();
+      else start();
+    }
+  });
+})();
+</script>
+
+</body>
+</html>
