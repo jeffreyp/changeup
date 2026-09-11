@@ -60,13 +60,37 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 14px;
+    gap: 18px;
+  }
+  .now-next-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+  }
+  .chord-block {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  .chord-label {
+    font-size: 0.68rem;
+    letter-spacing: 0.15em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .chord-arrow {
+    color: var(--border);
+    font-size: 1.8rem;
+    align-self: center;
+    margin-top: 14px;
   }
   .chord-display {
-    font-size: 5rem;
+    font-size: 4.4rem;
     font-weight: 700;
     line-height: 1;
-    min-height: 5.5rem;
+    min-height: 4.8rem;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -79,6 +103,11 @@
   .chord-display.idle {
     color: var(--muted);
     font-size: 1.6rem;
+  }
+  .next-chord-display {
+    font-size: 2.2rem;
+    color: var(--muted);
+    min-height: 4.8rem;
   }
   .beat-dots {
     display: flex;
@@ -284,7 +313,17 @@
   <div class="container">
 
     <div class="chord-stage">
-      <div class="chord-display idle" id="chordDisplay">Ready</div>
+      <div class="now-next-row">
+        <div class="chord-block">
+          <div class="chord-label">Now</div>
+          <div class="chord-display idle" id="chordDisplay">Ready</div>
+        </div>
+        <div class="chord-arrow">&rarr;</div>
+        <div class="chord-block">
+          <div class="chord-label">Next</div>
+          <div class="chord-display next-chord-display" id="nextChordDisplay">&ndash;</div>
+        </div>
+      </div>
       <div class="beat-dots" id="beatDots"></div>
     </div>
 
@@ -305,16 +344,13 @@
 
     <div class="panel">
       <div class="row">
-        <label for="beatsPerChord">Beats per chord</label>
-        <input type="number" id="beatsPerChord" min="1" max="32" value="4">
-      </div>
-      <div class="row">
-        <label>Order</label>
+        <label>Chord order</label>
         <div class="order-toggle">
           <button type="button" id="orderRandom" class="active">Random</button>
           <button type="button" id="orderSequential">Sequential</button>
         </div>
       </div>
+      <div class="hint" style="text-align:left; margin:0;">4/4 time &middot; chord changes every measure (4 beats)</div>
     </div>
 
     <div class="panel">
@@ -341,13 +377,13 @@
 
   // ---- DOM ----
   const chordDisplay = document.getElementById("chordDisplay");
+  const nextChordDisplay = document.getElementById("nextChordDisplay");
   const beatDotsEl = document.getElementById("beatDots");
   const bpmRange = document.getElementById("bpmRange");
   const bpmNumber = document.getElementById("bpmNumber");
   const bpmValue = document.getElementById("bpmValue");
   const bpmUp = document.getElementById("bpmUp");
   const bpmDown = document.getElementById("bpmDown");
-  const beatsPerChordInput = document.getElementById("beatsPerChord");
   const orderRandomBtn = document.getElementById("orderRandom");
   const orderSequentialBtn = document.getElementById("orderSequential");
   const chordsGrid = document.getElementById("chordsGrid");
@@ -356,8 +392,8 @@
   const warningMsg = document.getElementById("warningMsg");
 
   // ---- State ----
+  const BEATS_PER_CHORD = 4; // 4/4 time: one chord per measure
   let bpm = 90;
-  let beatsPerChord = 4;
   let orderMode = "random"; // "random" | "sequential"
   let enabledChords = new Set(CHORDS);
   let isRunning = false;
@@ -433,16 +469,6 @@
   bpmDown.addEventListener("click", () => setBpm(bpm - 1));
   setBpm(90);
 
-  // ---- Beats per chord ----
-  beatsPerChordInput.addEventListener("input", () => {
-    const v = parseInt(beatsPerChordInput.value, 10);
-    if (!isNaN(v) && v > 0) {
-      beatsPerChord = Math.max(1, Math.min(32, v));
-      buildBeatDots();
-    }
-  });
-  beatsPerChord = parseInt(beatsPerChordInput.value, 10) || 4;
-
   // ---- Order mode ----
   orderRandomBtn.addEventListener("click", () => {
     orderMode = "random";
@@ -458,7 +484,7 @@
   // ---- Beat dots UI ----
   function buildBeatDots() {
     beatDotsEl.innerHTML = "";
-    for (let i = 0; i < beatsPerChord; i++) {
+    for (let i = 0; i < BEATS_PER_CHORD; i++) {
       const dot = document.createElement("div");
       dot.className = "beat-dot" + (i === 0 ? " accent" : "");
       beatDotsEl.appendChild(dot);
@@ -518,10 +544,11 @@
 
   function scheduler() {
     while (nextNoteTime < audioCtx.currentTime + scheduleAheadTime) {
-      const beatInGroup = totalBeatCount % beatsPerChord;
-      const groupIndex = Math.floor(totalBeatCount / beatsPerChord);
+      const beatInGroup = totalBeatCount % BEATS_PER_CHORD;
+      const groupIndex = Math.floor(totalBeatCount / BEATS_PER_CHORD);
       const isAccent = beatInGroup === 0;
       const chordName = pickChordForGroup(groupIndex);
+      const nextChordName = pickChordForGroup(groupIndex + 1);
 
       playClick(nextNoteTime, isAccent);
       noteQueue.push({
@@ -529,6 +556,7 @@
         beatInGroup: beatInGroup,
         isAccent: isAccent,
         chordName: chordName,
+        nextChordName: nextChordName,
       });
 
       nextNoteTime += 60.0 / bpm;
@@ -545,6 +573,7 @@
         chordDisplay.textContent = note.chordName;
         chordDisplay.classList.remove("idle");
       }
+      nextChordDisplay.textContent = note.nextChordName;
       lightBeatDot(note.beatInGroup);
       chordDisplay.classList.remove("pulse");
       // force reflow to restart animation
@@ -583,6 +612,7 @@
     startBtn.classList.remove("running");
     chordDisplay.textContent = "Ready";
     chordDisplay.classList.add("idle");
+    nextChordDisplay.textContent = "–";
     lightBeatDot(-1);
   }
 
