@@ -15,6 +15,7 @@
     --accent-dim: #2f5c4c;
     --danger: #e0616b;
     --border: #2e3244;
+    --countin: #7c9cff;
   }
   * { box-sizing: border-box; }
   html, body {
@@ -104,6 +105,9 @@
     color: var(--muted);
     font-size: 1.6rem;
   }
+  .chord-display.pending {
+    opacity: 0.5;
+  }
   .next-chord-display {
     font-size: 2.2rem;
     color: var(--muted);
@@ -132,6 +136,17 @@
   .beat-dot.accent.on {
     background: #ffd166;
     border-color: #ffd166;
+  }
+  .beat-dot.countin.on {
+    background: var(--countin);
+    border-color: var(--countin);
+  }
+  .phase-label {
+    color: var(--muted);
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    min-height: 1em;
   }
 
   /* Controls */
@@ -324,6 +339,7 @@
           <div class="chord-display next-chord-display" id="nextChordDisplay">&ndash;</div>
         </div>
       </div>
+      <div class="phase-label" id="phaseLabel"></div>
       <div class="beat-dots" id="beatDots"></div>
     </div>
 
@@ -379,6 +395,7 @@
   const chordDisplay = document.getElementById("chordDisplay");
   const nextChordDisplay = document.getElementById("nextChordDisplay");
   const beatDotsEl = document.getElementById("beatDots");
+  const phaseLabel = document.getElementById("phaseLabel");
   const bpmRange = document.getElementById("bpmRange");
   const bpmNumber = document.getElementById("bpmNumber");
   const bpmValue = document.getElementById("bpmValue");
@@ -393,6 +410,7 @@
 
   // ---- State ----
   const BEATS_PER_CHORD = 4; // 4/4 time: one chord per measure
+  const COUNT_IN_BEATS = 4;
   let bpm = 90;
   let orderMode = "random"; // "random" | "sequential"
   let enabledChords = new Set(CHORDS);
@@ -401,6 +419,7 @@
   let audioCtx = null;
   let nextNoteTime = 0.0;
   let totalBeatCount = 0;
+  let countInRemaining = 0;
   let sequentialCursor = 0;
   let lastChordName = null;
   const chordSequence = []; // memoized chord per chord-group-index
@@ -408,7 +427,7 @@
   const lookaheadMs = 25.0;
   let timerId = null;
 
-  const noteQueue = []; // {time, beatInGroup, isAccent, chordIndex, chordName}
+  const noteQueue = []; // {time, type, beatInGroup, isAccent, chordName, nextChordName}
   let rafId = null;
 
   // ---- Build chord checkboxes ----
@@ -492,10 +511,12 @@
   }
   buildBeatDots();
 
-  function lightBeatDot(idx) {
+  function lightBeatDot(idx, isCountIn) {
     const dots = beatDotsEl.children;
     for (let i = 0; i < dots.length; i++) {
-      dots[i].classList.toggle("on", i === idx);
+      const on = i === idx;
+      dots[i].classList.toggle("on", on);
+      dots[i].classList.toggle("countin", !!isCountIn && on);
     }
   }
 
@@ -542,25 +563,51 @@
     osc.stop(time + 0.07);
   }
 
+  function playCountInClick(time) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = "square";
+    osc.frequency.value = 1200;
+    gain.gain.setValueAtTime(0.0001, time);
+    gain.gain.exponentialRampToValueAtTime(0.35, time + 0.001);
+    gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.04);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(time);
+    osc.stop(time + 0.05);
+  }
+
   function scheduler() {
     while (nextNoteTime < audioCtx.currentTime + scheduleAheadTime) {
-      const beatInGroup = totalBeatCount % BEATS_PER_CHORD;
-      const groupIndex = Math.floor(totalBeatCount / BEATS_PER_CHORD);
-      const isAccent = beatInGroup === 0;
-      const chordName = pickChordForGroup(groupIndex);
-      const nextChordName = pickChordForGroup(groupIndex + 1);
+      if (countInRemaining > 0) {
+        const beatIndex = COUNT_IN_BEATS - countInRemaining;
+        playCountInClick(nextNoteTime);
+        noteQueue.push({
+          time: nextNoteTime,
+          type: "countin",
+          beatInGroup: beatIndex,
+        });
+        countInRemaining--;
+      } else {
+        const beatInGroup = totalBeatCount % BEATS_PER_CHORD;
+        const groupIndex = Math.floor(totalBeatCount / BEATS_PER_CHORD);
+        const isAccent = beatInGroup === 0;
+        const chordName = pickChordForGroup(groupIndex);
+        const nextChordName = pickChordForGroup(groupIndex + 1);
 
-      playClick(nextNoteTime, isAccent);
-      noteQueue.push({
-        time: nextNoteTime,
-        beatInGroup: beatInGroup,
-        isAccent: isAccent,
-        chordName: chordName,
-        nextChordName: nextChordName,
-      });
+        playClick(nextNoteTime, isAccent);
+        noteQueue.push({
+          time: nextNoteTime,
+          type: "beat",
+          beatInGroup: beatInGroup,
+          isAccent: isAccent,
+          chordName: chordName,
+          nextChordName: nextChordName,
+        });
 
+        totalBeatCount++;
+      }
       nextNoteTime += 60.0 / bpm;
-      totalBeatCount++;
     }
     timerId = setTimeout(scheduler, lookaheadMs);
   }
@@ -569,16 +616,23 @@
     const now = audioCtx.currentTime;
     while (noteQueue.length && noteQueue[0].time <= now) {
       const note = noteQueue.shift();
-      if (note.chordName !== chordDisplay.textContent || chordDisplay.classList.contains("idle")) {
-        chordDisplay.textContent = note.chordName;
-        chordDisplay.classList.remove("idle");
+      if (note.type === "countin") {
+        phaseLabel.textContent = "Count-in – " + (COUNT_IN_BEATS - note.beatInGroup);
+        lightBeatDot(note.beatInGroup, true);
+      } else {
+        phaseLabel.textContent = "";
+        chordDisplay.classList.remove("pending");
+        if (note.chordName !== chordDisplay.textContent || chordDisplay.classList.contains("idle")) {
+          chordDisplay.textContent = note.chordName;
+          chordDisplay.classList.remove("idle");
+        }
+        nextChordDisplay.textContent = note.nextChordName;
+        lightBeatDot(note.beatInGroup, false);
+        chordDisplay.classList.remove("pulse");
+        // force reflow to restart animation
+        void chordDisplay.offsetWidth;
+        chordDisplay.classList.add("pulse");
       }
-      nextChordDisplay.textContent = note.nextChordName;
-      lightBeatDot(note.beatInGroup);
-      chordDisplay.classList.remove("pulse");
-      // force reflow to restart animation
-      void chordDisplay.offsetWidth;
-      chordDisplay.classList.add("pulse");
     }
     if (isRunning) rafId = requestAnimationFrame(drawLoop);
   }
@@ -593,6 +647,7 @@
     }
     isRunning = true;
     totalBeatCount = 0;
+    countInRemaining = COUNT_IN_BEATS;
     sequentialCursor = 0;
     lastChordName = null;
     chordSequence.length = 0;
@@ -600,6 +655,16 @@
     nextNoteTime = audioCtx.currentTime + 0.05;
     startBtn.textContent = "■ Stop";
     startBtn.classList.add("running");
+
+    // Show the first chord right away so it can be prepared during the count-in.
+    const firstChord = pickChordForGroup(0);
+    const secondChord = pickChordForGroup(1);
+    chordDisplay.textContent = firstChord;
+    chordDisplay.classList.remove("idle");
+    chordDisplay.classList.add("pending");
+    nextChordDisplay.textContent = secondChord;
+    phaseLabel.textContent = "Count-in – " + COUNT_IN_BEATS;
+
     scheduler();
     drawLoop();
   }
@@ -611,9 +676,11 @@
     startBtn.textContent = "▶ Start";
     startBtn.classList.remove("running");
     chordDisplay.textContent = "Ready";
+    chordDisplay.classList.remove("pending");
     chordDisplay.classList.add("idle");
     nextChordDisplay.textContent = "–";
-    lightBeatDot(-1);
+    phaseLabel.textContent = "";
+    lightBeatDot(-1, false);
   }
 
   startBtn.addEventListener("click", () => {
