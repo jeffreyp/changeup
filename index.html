@@ -266,6 +266,11 @@
     font-weight: 600;
   }
 
+  #modeToggle button {
+    font-size: 0.76rem;
+    padding: 8px 2px;
+  }
+
   .chord-select-row {
     display: flex;
     justify-content: space-between;
@@ -314,6 +319,10 @@
     text-align: center;
   }
 
+  .mode-hidden {
+    display: none !important;
+  }
+
   @media (max-width: 380px) {
     .chord-display { font-size: 3.6rem; }
     .chords-grid { grid-template-columns: repeat(4, 1fr); }
@@ -328,7 +337,7 @@
   <div class="container">
 
     <div class="chord-stage">
-      <div class="now-next-row">
+      <div class="now-next-row" id="nowNextRow">
         <div class="chord-block">
           <div class="chord-label">Now</div>
           <div class="chord-display idle" id="chordDisplay">Ready</div>
@@ -361,12 +370,13 @@
     <div class="panel">
       <div class="row">
         <label>Practice mode</label>
-        <div class="order-toggle">
+        <div class="order-toggle" id="modeToggle">
           <button type="button" id="modeFree" class="active">Free</button>
           <button type="button" id="modeJustin25">Justin's 25</button>
+          <button type="button" id="modeMetronome">Metronome</button>
         </div>
       </div>
-      <div class="row">
+      <div class="row" id="chordOrderRow">
         <label>Chord order</label>
         <div class="order-toggle">
           <button type="button" id="orderRandom" class="active">Random</button>
@@ -376,7 +386,7 @@
       <div class="hint" id="modeHint" style="text-align:left; margin:0;">4/4 time &middot; chord changes every measure (4 beats)</div>
     </div>
 
-    <div class="panel">
+    <div class="panel" id="chordsPanel">
       <div class="chord-select-row">
         <label>Chords in rotation</label>
         <button type="button" class="link-btn" id="selectAllBtn">select all / none</button>
@@ -425,7 +435,11 @@
   const orderSequentialBtn = document.getElementById("orderSequential");
   const modeFreeBtn = document.getElementById("modeFree");
   const modeJustin25Btn = document.getElementById("modeJustin25");
+  const modeMetronomeBtn = document.getElementById("modeMetronome");
   const modeHint = document.getElementById("modeHint");
+  const nowNextRow = document.getElementById("nowNextRow");
+  const chordOrderRow = document.getElementById("chordOrderRow");
+  const chordsPanel = document.getElementById("chordsPanel");
   const chordsGrid = document.getElementById("chordsGrid");
   const selectAllBtn = document.getElementById("selectAllBtn");
   const startBtn = document.getElementById("startBtn");
@@ -436,7 +450,7 @@
   const COUNT_IN_BEATS = 4;
   let bpm = 90;
   let orderMode = "random"; // "random" | "sequential"
-  let practiceMode = "free"; // "free" | "justin25"
+  let practiceMode = "free"; // "free" | "justin25" | "metronome"
   let enabledChords = new Set(CHORDS);
   let isRunning = false;
 
@@ -498,7 +512,7 @@
   }
 
   function validate() {
-    if (enabledChords.size === 0) {
+    if (practiceMode !== "metronome" && enabledChords.size === 0) {
       warningMsg.textContent = "Select at least one chord to start.";
       startBtn.disabled = true;
       return;
@@ -516,26 +530,34 @@
   function updateModeHint() {
     if (practiceMode === "justin25") {
       modeHint.textContent = eligiblePairs().length + " of 25 changes in rotation (filtered by chords checked below) · 4/4 time";
+    } else if (practiceMode === "metronome") {
+      modeHint.textContent = "Just the click, no chords or count-in · 4/4 time";
     } else {
       modeHint.textContent = "4/4 time · chord changes every measure (4 beats)";
     }
   }
   updateModeHint();
 
-  modeFreeBtn.addEventListener("click", () => {
-    practiceMode = "free";
-    modeFreeBtn.classList.add("active");
-    modeJustin25Btn.classList.remove("active");
+  function updateModeVisibility() {
+    const isMetronome = practiceMode === "metronome";
+    nowNextRow.classList.toggle("mode-hidden", isMetronome);
+    chordOrderRow.classList.toggle("mode-hidden", isMetronome);
+    chordsPanel.classList.toggle("mode-hidden", isMetronome);
+  }
+  updateModeVisibility();
+
+  function setPracticeMode(mode) {
+    practiceMode = mode;
+    modeFreeBtn.classList.toggle("active", mode === "free");
+    modeJustin25Btn.classList.toggle("active", mode === "justin25");
+    modeMetronomeBtn.classList.toggle("active", mode === "metronome");
     updateModeHint();
+    updateModeVisibility();
     validate();
-  });
-  modeJustin25Btn.addEventListener("click", () => {
-    practiceMode = "justin25";
-    modeJustin25Btn.classList.add("active");
-    modeFreeBtn.classList.remove("active");
-    updateModeHint();
-    validate();
-  });
+  }
+  modeFreeBtn.addEventListener("click", () => setPracticeMode("free"));
+  modeJustin25Btn.addEventListener("click", () => setPracticeMode("justin25"));
+  modeMetronomeBtn.addEventListener("click", () => setPracticeMode("metronome"));
 
   // ---- BPM controls ----
   function setBpm(v) {
@@ -687,20 +709,32 @@
         countInRemaining--;
       } else {
         const beatInGroup = totalBeatCount % BEATS_PER_CHORD;
-        const groupIndex = Math.floor(totalBeatCount / BEATS_PER_CHORD);
         const isAccent = beatInGroup === 0;
-        const chordName = pickChordForGroup(groupIndex);
-        const nextChordName = pickChordForGroup(groupIndex + 1);
 
-        playClick(nextNoteTime, isAccent);
-        noteQueue.push({
-          time: nextNoteTime,
-          type: "beat",
-          beatInGroup: beatInGroup,
-          isAccent: isAccent,
-          chordName: chordName,
-          nextChordName: nextChordName,
-        });
+        if (practiceMode === "metronome") {
+          playClick(nextNoteTime, isAccent);
+          noteQueue.push({
+            time: nextNoteTime,
+            type: "beat",
+            beatInGroup: beatInGroup,
+            isAccent: isAccent,
+            chordless: true,
+          });
+        } else {
+          const groupIndex = Math.floor(totalBeatCount / BEATS_PER_CHORD);
+          const chordName = pickChordForGroup(groupIndex);
+          const nextChordName = pickChordForGroup(groupIndex + 1);
+
+          playClick(nextNoteTime, isAccent);
+          noteQueue.push({
+            time: nextNoteTime,
+            type: "beat",
+            beatInGroup: beatInGroup,
+            isAccent: isAccent,
+            chordName: chordName,
+            nextChordName: nextChordName,
+          });
+        }
 
         totalBeatCount++;
       }
@@ -716,6 +750,9 @@
       if (note.type === "countin") {
         phaseLabel.textContent = "Count-in – " + (COUNT_IN_BEATS - note.beatInGroup);
         lightBeatDot(note.beatInGroup, true);
+      } else if (note.chordless) {
+        phaseLabel.textContent = "";
+        lightBeatDot(note.beatInGroup, false);
       } else {
         phaseLabel.textContent = "";
         chordDisplay.classList.remove("pending");
@@ -735,7 +772,7 @@
   }
 
   function start() {
-    if (enabledChords.size === 0) return;
+    if (practiceMode !== "metronome" && enabledChords.size === 0) return;
     if (!audioCtx) {
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     }
@@ -744,7 +781,7 @@
     }
     isRunning = true;
     totalBeatCount = 0;
-    countInRemaining = COUNT_IN_BEATS;
+    countInRemaining = practiceMode === "metronome" ? 0 : COUNT_IN_BEATS;
     sequentialCursor = 0;
     lastChordName = null;
     sequentialPairCursor = 0;
@@ -756,14 +793,18 @@
     startBtn.textContent = "■ Stop";
     startBtn.classList.add("running");
 
-    // Show the first chord right away so it can be prepared during the count-in.
-    const firstChord = pickChordForGroup(0);
-    const secondChord = pickChordForGroup(1);
-    chordDisplay.textContent = firstChord;
-    chordDisplay.classList.remove("idle");
-    chordDisplay.classList.add("pending");
-    nextChordDisplay.textContent = secondChord;
-    phaseLabel.textContent = "Count-in – " + COUNT_IN_BEATS;
+    if (practiceMode === "metronome") {
+      phaseLabel.textContent = "";
+    } else {
+      // Show the first chord right away so it can be prepared during the count-in.
+      const firstChord = pickChordForGroup(0);
+      const secondChord = pickChordForGroup(1);
+      chordDisplay.textContent = firstChord;
+      chordDisplay.classList.remove("idle");
+      chordDisplay.classList.add("pending");
+      nextChordDisplay.textContent = secondChord;
+      phaseLabel.textContent = "Count-in – " + COUNT_IN_BEATS;
+    }
 
     scheduler();
     drawLoop();
