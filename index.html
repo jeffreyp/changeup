@@ -360,13 +360,20 @@
 
     <div class="panel">
       <div class="row">
+        <label>Practice mode</label>
+        <div class="order-toggle">
+          <button type="button" id="modeFree" class="active">Free</button>
+          <button type="button" id="modeJustin25">Justin's 25</button>
+        </div>
+      </div>
+      <div class="row">
         <label>Chord order</label>
         <div class="order-toggle">
           <button type="button" id="orderRandom" class="active">Random</button>
           <button type="button" id="orderSequential">Sequential</button>
         </div>
       </div>
-      <div class="hint" style="text-align:left; margin:0;">4/4 time &middot; chord changes every measure (4 beats)</div>
+      <div class="hint" id="modeHint" style="text-align:left; margin:0;">4/4 time &middot; chord changes every measure (4 beats)</div>
     </div>
 
     <div class="panel">
@@ -391,6 +398,19 @@
 
   const CHORDS = ["E", "Em", "D", "Dm", "A", "Am", "C", "G"];
 
+  // JustinGuitar's "25 Most Important Changes" — the chord pairs worth
+  // drilling on purpose, deliberately excluding one-finger changes like
+  // A/Am, D/Dm, E/Em.
+  const JUSTIN_25 = [
+    ["A", "C"], ["A", "G"], ["A", "E"], ["A", "Em"], ["A", "D"], ["A", "Dm"],
+    ["C", "G"], ["C", "E"], ["C", "D"], ["C", "Dm"], ["C", "Am"], ["C", "Em"],
+    ["G", "E"], ["G", "D"], ["G", "Dm"], ["G", "Am"], ["G", "Em"],
+    ["E", "D"], ["E", "Dm"], ["E", "Am"],
+    ["D", "Am"], ["D", "Em"],
+    ["Dm", "Am"], ["Dm", "Em"],
+    ["Am", "Em"],
+  ];
+
   // ---- DOM ----
   const chordDisplay = document.getElementById("chordDisplay");
   const nextChordDisplay = document.getElementById("nextChordDisplay");
@@ -403,6 +423,9 @@
   const bpmDown = document.getElementById("bpmDown");
   const orderRandomBtn = document.getElementById("orderRandom");
   const orderSequentialBtn = document.getElementById("orderSequential");
+  const modeFreeBtn = document.getElementById("modeFree");
+  const modeJustin25Btn = document.getElementById("modeJustin25");
+  const modeHint = document.getElementById("modeHint");
   const chordsGrid = document.getElementById("chordsGrid");
   const selectAllBtn = document.getElementById("selectAllBtn");
   const startBtn = document.getElementById("startBtn");
@@ -413,6 +436,7 @@
   const COUNT_IN_BEATS = 4;
   let bpm = 90;
   let orderMode = "random"; // "random" | "sequential"
+  let practiceMode = "free"; // "free" | "justin25"
   let enabledChords = new Set(CHORDS);
   let isRunning = false;
 
@@ -422,7 +446,10 @@
   let countInRemaining = 0;
   let sequentialCursor = 0;
   let lastChordName = null;
+  let sequentialPairCursor = 0;
+  let lastPairKey = null;
   const chordSequence = []; // memoized chord per chord-group-index
+  const pairSequence = []; // memoized [chordA, chordB] per pair-index (justin25 mode)
   const scheduleAheadTime = 0.12; // seconds
   const lookaheadMs = 25.0;
   let timerId = null;
@@ -441,6 +468,7 @@
     input.addEventListener("change", () => {
       if (input.checked) enabledChords.add(name);
       else enabledChords.delete(name);
+      updateModeHint();
       validate();
     });
     const span = document.createElement("span");
@@ -458,19 +486,56 @@
       if (!allChecked) enabledChords.add(cb.value);
       else enabledChords.delete(cb.value);
     });
+    updateModeHint();
     validate();
   });
+
+  function eligiblePairs() {
+    return JUSTIN_25.filter(([a, b]) => enabledChords.has(a) && enabledChords.has(b));
+  }
+  function pairKey(pair) {
+    return pair[0] + ">" + pair[1];
+  }
 
   function validate() {
     if (enabledChords.size === 0) {
       warningMsg.textContent = "Select at least one chord to start.";
       startBtn.disabled = true;
-    } else {
-      warningMsg.textContent = "";
-      startBtn.disabled = false;
+      return;
     }
+    if (practiceMode === "justin25" && eligiblePairs().length === 0) {
+      warningMsg.textContent = "None of Justin's 25 changes match your selected chords. Enable at least two chords that pair up in the list.";
+      startBtn.disabled = true;
+      return;
+    }
+    warningMsg.textContent = "";
+    startBtn.disabled = false;
   }
   validate();
+
+  function updateModeHint() {
+    if (practiceMode === "justin25") {
+      modeHint.textContent = eligiblePairs().length + " of 25 changes in rotation (filtered by chords checked below) · 4/4 time";
+    } else {
+      modeHint.textContent = "4/4 time · chord changes every measure (4 beats)";
+    }
+  }
+  updateModeHint();
+
+  modeFreeBtn.addEventListener("click", () => {
+    practiceMode = "free";
+    modeFreeBtn.classList.add("active");
+    modeJustin25Btn.classList.remove("active");
+    updateModeHint();
+    validate();
+  });
+  modeJustin25Btn.addEventListener("click", () => {
+    practiceMode = "justin25";
+    modeJustin25Btn.classList.add("active");
+    modeFreeBtn.classList.remove("active");
+    updateModeHint();
+    validate();
+  });
 
   // ---- BPM controls ----
   function setBpm(v) {
@@ -521,18 +586,16 @@
   }
 
   // ---- Chord sequence generation ----
-  function pickChordForGroup(groupIndex) {
-    if (chordSequence[groupIndex] !== undefined) return chordSequence[groupIndex];
+  function pickPairForIndex(pairIndex) {
+    if (pairSequence[pairIndex] !== undefined) return pairSequence[pairIndex];
 
-    const pool = Array.from(enabledChords);
+    const pool = eligiblePairs();
     let choice;
     if (pool.length === 0) {
-      choice = "?";
+      choice = ["?", "?"];
     } else if (orderMode === "sequential") {
-      // Use the fixed CHORDS order, filtered to enabled ones, cycling.
-      const ordered = CHORDS.filter((c) => enabledChords.has(c));
-      choice = ordered[sequentialCursor % ordered.length];
-      sequentialCursor++;
+      choice = pool[sequentialPairCursor % pool.length];
+      sequentialPairCursor++;
     } else {
       // random, avoid immediate repeat when possible
       if (pool.length === 1) {
@@ -540,10 +603,44 @@
       } else {
         do {
           choice = pool[Math.floor(Math.random() * pool.length)];
-        } while (choice === lastChordName);
+        } while (pairKey(choice) === lastPairKey);
       }
     }
-    lastChordName = choice;
+    lastPairKey = pairKey(choice);
+    pairSequence[pairIndex] = choice;
+    return choice;
+  }
+
+  function pickChordForGroup(groupIndex) {
+    if (chordSequence[groupIndex] !== undefined) return chordSequence[groupIndex];
+
+    let choice;
+    if (practiceMode === "justin25") {
+      // Each pair spans two measures: chord A, then chord B.
+      const pairIndex = Math.floor(groupIndex / 2);
+      const posInPair = groupIndex % 2;
+      choice = pickPairForIndex(pairIndex)[posInPair];
+    } else {
+      const pool = Array.from(enabledChords);
+      if (pool.length === 0) {
+        choice = "?";
+      } else if (orderMode === "sequential") {
+        // Use the fixed CHORDS order, filtered to enabled ones, cycling.
+        const ordered = CHORDS.filter((c) => enabledChords.has(c));
+        choice = ordered[sequentialCursor % ordered.length];
+        sequentialCursor++;
+      } else {
+        // random, avoid immediate repeat when possible
+        if (pool.length === 1) {
+          choice = pool[0];
+        } else {
+          do {
+            choice = pool[Math.floor(Math.random() * pool.length)];
+          } while (choice === lastChordName);
+        }
+      }
+      lastChordName = choice;
+    }
     chordSequence[groupIndex] = choice;
     return choice;
   }
@@ -650,7 +747,10 @@
     countInRemaining = COUNT_IN_BEATS;
     sequentialCursor = 0;
     lastChordName = null;
+    sequentialPairCursor = 0;
+    lastPairKey = null;
     chordSequence.length = 0;
+    pairSequence.length = 0;
     noteQueue.length = 0;
     nextNoteTime = audioCtx.currentTime + 0.05;
     startBtn.textContent = "■ Stop";
