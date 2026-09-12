@@ -460,10 +460,8 @@
   let countInRemaining = 0;
   let sequentialCursor = 0;
   let lastChordName = null;
-  let sequentialPairCursor = 0;
-  let lastPairKey = null;
+  let justin25SeqCursor = {}; // chord -> next candidate index (sequential order, justin25 mode)
   const chordSequence = []; // memoized chord per chord-group-index
-  const pairSequence = []; // memoized [chordA, chordB] per pair-index (justin25 mode)
   const scheduleAheadTime = 0.12; // seconds
   const lookaheadMs = 25.0;
   let timerId = null;
@@ -506,9 +504,6 @@
 
   function eligiblePairs() {
     return JUSTIN_25.filter(([a, b]) => enabledChords.has(a) && enabledChords.has(b));
-  }
-  function pairKey(pair) {
-    return pair[0] + ">" + pair[1];
   }
 
   function validate() {
@@ -608,28 +603,42 @@
   }
 
   // ---- Chord sequence generation ----
-  function pickPairForIndex(pairIndex) {
-    if (pairSequence[pairIndex] !== undefined) return pairSequence[pairIndex];
+  // Every transition in Justin25 mode must itself be one of the 25 curated
+  // pairs — not just every other measure — so we walk the pair-graph one
+  // chord at a time instead of picking independent pairs and concatenating
+  // them (which let the "seam" between pairs be an arbitrary, uncurated
+  // change, indistinguishable from Free mode).
+  function justin25Candidates(chord) {
+    const candidates = [];
+    eligiblePairs().forEach(([a, b]) => {
+      if (a === chord) candidates.push(b);
+      else if (b === chord) candidates.push(a);
+    });
+    return candidates;
+  }
 
+  function pickJustin25Start() {
     const pool = eligiblePairs();
-    let choice;
-    if (pool.length === 0) {
-      choice = ["?", "?"];
-    } else if (orderMode === "sequential") {
-      choice = pool[sequentialPairCursor % pool.length];
-      sequentialPairCursor++;
-    } else {
-      // random, avoid immediate repeat when possible
-      if (pool.length === 1) {
-        choice = pool[0];
-      } else {
-        do {
-          choice = pool[Math.floor(Math.random() * pool.length)];
-        } while (pairKey(choice) === lastPairKey);
-      }
+    if (pool.length === 0) return "?";
+    if (orderMode === "sequential") return pool[0][0];
+    const chordsInPairs = Array.from(new Set(pool.flat()));
+    return chordsInPairs[Math.floor(Math.random() * chordsInPairs.length)];
+  }
+
+  function pickNextJustin25Chord(prevChord, grandparentChord) {
+    const candidates = justin25Candidates(prevChord);
+    if (candidates.length === 0) return prevChord === undefined ? "?" : prevChord;
+    if (orderMode === "sequential") {
+      const idx = (justin25SeqCursor[prevChord] || 0) % candidates.length;
+      justin25SeqCursor[prevChord] = idx + 1;
+      return candidates[idx];
     }
-    lastPairKey = pairKey(choice);
-    pairSequence[pairIndex] = choice;
+    if (candidates.length === 1) return candidates[0];
+    // random, avoid immediately bouncing back to the chord before last when possible
+    let choice;
+    do {
+      choice = candidates[Math.floor(Math.random() * candidates.length)];
+    } while (choice === grandparentChord);
     return choice;
   }
 
@@ -638,10 +647,13 @@
 
     let choice;
     if (practiceMode === "justin25") {
-      // Each pair spans two measures: chord A, then chord B.
-      const pairIndex = Math.floor(groupIndex / 2);
-      const posInPair = groupIndex % 2;
-      choice = pickPairForIndex(pairIndex)[posInPair];
+      if (groupIndex === 0) {
+        choice = pickJustin25Start();
+      } else {
+        const prev = pickChordForGroup(groupIndex - 1);
+        const grandparent = groupIndex >= 2 ? pickChordForGroup(groupIndex - 2) : null;
+        choice = pickNextJustin25Chord(prev, grandparent);
+      }
     } else {
       const pool = Array.from(enabledChords);
       if (pool.length === 0) {
@@ -784,10 +796,8 @@
     countInRemaining = practiceMode === "metronome" ? 0 : COUNT_IN_BEATS;
     sequentialCursor = 0;
     lastChordName = null;
-    sequentialPairCursor = 0;
-    lastPairKey = null;
+    justin25SeqCursor = {};
     chordSequence.length = 0;
-    pairSequence.length = 0;
     noteQueue.length = 0;
     nextNoteTime = audioCtx.currentTime + 0.05;
     startBtn.textContent = "■ Stop";
