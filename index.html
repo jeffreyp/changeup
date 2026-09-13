@@ -30,7 +30,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 12px 12px 20px;
+    padding: 12px 12px 14px;
   }
   h1 {
     font-size: 1.2rem;
@@ -49,7 +49,7 @@
     max-width: 480px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
   }
 
   /* Chord display */
@@ -154,10 +154,10 @@
     background: var(--panel);
     border: 1px solid var(--border);
     border-radius: 16px;
-    padding: 12px 14px;
+    padding: 10px 14px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
   }
   .row {
     display: flex;
@@ -313,6 +313,19 @@
     min-height: 1em;
   }
 
+  .elapsed-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 10px;
+  }
+  .elapsed-time {
+    color: var(--muted);
+    font-size: 0.85rem;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+  }
+
   .hint {
     color: var(--muted);
     font-size: 0.75rem;
@@ -350,6 +363,11 @@
       </div>
       <div class="phase-label" id="phaseLabel"></div>
       <div class="beat-dots" id="beatDots"></div>
+    </div>
+
+    <div class="elapsed-row">
+      <span class="elapsed-time" id="elapsedTime">0:00</span>
+      <button type="button" class="link-btn" id="resetElapsedBtn">reset</button>
     </div>
 
     <div class="warning" id="warningMsg"></div>
@@ -444,6 +462,8 @@
   const selectAllBtn = document.getElementById("selectAllBtn");
   const startBtn = document.getElementById("startBtn");
   const warningMsg = document.getElementById("warningMsg");
+  const elapsedTimeEl = document.getElementById("elapsedTime");
+  const resetElapsedBtn = document.getElementById("resetElapsedBtn");
 
   // ---- State ----
   const BEATS_PER_CHORD = 4; // 4/4 time: one chord per measure
@@ -469,6 +489,35 @@
   const noteQueue = []; // {time, type, beatInGroup, isAccent, chordName, nextChordName}
   let rafId = null;
   let wakeLock = null;
+
+  // ---- Elapsed time (runs only while playing; survives pause/resume) ----
+  let elapsedMs = 0;
+  let elapsedRunStart = null; // performance.now() when the current run segment began, or null when paused
+
+  function currentElapsedMs() {
+    return elapsedMs + (elapsedRunStart !== null ? performance.now() - elapsedRunStart : 0);
+  }
+
+  function formatElapsed(ms) {
+    const totalSec = Math.floor(ms / 1000);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    const mStr = h > 0 ? String(m).padStart(2, "0") : String(m);
+    const sStr = String(s).padStart(2, "0");
+    return (h > 0 ? h + ":" : "") + mStr + ":" + sStr;
+  }
+
+  function updateElapsedDisplay() {
+    elapsedTimeEl.textContent = formatElapsed(currentElapsedMs());
+  }
+  updateElapsedDisplay();
+
+  resetElapsedBtn.addEventListener("click", () => {
+    elapsedMs = 0;
+    if (elapsedRunStart !== null) elapsedRunStart = performance.now();
+    updateElapsedDisplay();
+  });
 
   // ---- Wake lock (keep screen on while playing) ----
   async function acquireWakeLock() {
@@ -804,6 +853,7 @@
         chordDisplay.classList.add("pulse");
       }
     }
+    updateElapsedDisplay();
     if (isRunning) rafId = requestAnimationFrame(drawLoop);
   }
 
@@ -840,6 +890,9 @@
       phaseLabel.textContent = "Count-in – " + COUNT_IN_BEATS;
     }
 
+    elapsedRunStart = performance.now();
+    updateElapsedDisplay();
+
     scheduler();
     drawLoop();
     acquireWakeLock();
@@ -850,6 +903,11 @@
     clearTimeout(timerId);
     cancelAnimationFrame(rafId);
     releaseWakeLock();
+    if (elapsedRunStart !== null) {
+      elapsedMs += performance.now() - elapsedRunStart;
+      elapsedRunStart = null;
+    }
+    updateElapsedDisplay();
     startBtn.textContent = "▶ Start";
     startBtn.classList.remove("running");
     chordDisplay.textContent = "Ready";
