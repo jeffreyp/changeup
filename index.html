@@ -468,6 +468,30 @@
 
   const noteQueue = []; // {time, type, beatInGroup, isAccent, chordName, nextChordName}
   let rafId = null;
+  let wakeLock = null;
+
+  // ---- Wake lock (keep screen on while playing) ----
+  async function acquireWakeLock() {
+    if (!("wakeLock" in navigator)) return;
+    try {
+      wakeLock = await navigator.wakeLock.request("screen");
+    } catch (err) {
+      wakeLock = null;
+    }
+  }
+
+  function releaseWakeLock() {
+    if (wakeLock) {
+      wakeLock.release();
+      wakeLock = null;
+    }
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (isRunning && document.visibilityState === "visible" && !wakeLock) {
+      acquireWakeLock();
+    }
+  });
 
   // ---- Build chord checkboxes ----
   CHORDS.forEach((name) => {
@@ -818,12 +842,14 @@
 
     scheduler();
     drawLoop();
+    acquireWakeLock();
   }
 
   function stop() {
     isRunning = false;
     clearTimeout(timerId);
     cancelAnimationFrame(rafId);
+    releaseWakeLock();
     startBtn.textContent = "▶ Start";
     startBtn.classList.remove("running");
     chordDisplay.textContent = "Ready";
