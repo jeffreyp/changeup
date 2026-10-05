@@ -1,12 +1,12 @@
 # Changeup
 
-A simple metronome + chord-change trainer for guitar practice. Pick a tempo,
+A simple metronome + chord-change trainer for beginner guitar practice. Pick a tempo,
 choose which chords you want in rotation (E, Em, D, Dm, A, Am, C, G), and it
 clicks along in 4/4 time and prompts you to switch chords every measure
 (every 4 beats). A count-in gives you time to get ready before the first
 chord.
 
-Try it now, [click here](https://jeffreyp.github.io/changeup/)
+Try it now, [click here](https://jeffreyp.github.io/changeup/).
 
 <p align="center">
   <img src="docs/screenshot.png" alt="Changeup running in Justin's 25 mode on a phone-sized screen" width="320">
