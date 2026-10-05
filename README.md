@@ -6,7 +6,7 @@ clicks along in 4/4 time and prompts you to switch chords every measure
 (every 4 beats). A count-in gives you time to get ready before the first
 chord.
 
-It's a single static `index.html` file — no build step, no dependencies.
+Try it now, [click here](https://jeffreyp.github.io/changeup/)
 
 <p align="center">
   <img src="docs/screenshot.png" alt="Changeup running in Justin's 25 mode on a phone-sized screen" width="320">
